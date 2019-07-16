@@ -1,13 +1,16 @@
-package aburakc.model.id;
+package aburakc.model.scroll;
 
 import com.google.gson.annotations.Expose;
 import com.google.gson.annotations.SerializedName;
 
-public class IdResponse {
+public class ScrollResponse {
 
+@SerializedName("_scroll_id")
+@Expose
+private String scrollId;
 @SerializedName("took")
 @Expose
-private Integer took;
+private Long took;
 @SerializedName("timed_out")
 @Expose
 private Boolean timedOut;
@@ -18,11 +21,19 @@ private Shards shards;
 @Expose
 private Hits hits;
 
-public Integer getTook() {
+public String getScrollId() {
+return scrollId;
+}
+
+public void setScrollId(String scrollId) {
+this.scrollId = scrollId;
+}
+
+public Long getTook() {
 return took;
 }
 
-public void setTook(Integer took) {
+public void setTook(Long took) {
 this.took = took;
 }
 

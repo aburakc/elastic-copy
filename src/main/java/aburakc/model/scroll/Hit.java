@@ -1,10 +1,10 @@
-package aburakc.model.mget;
+package aburakc.model.scroll;
 
 import com.google.gson.JsonElement;
 import com.google.gson.annotations.Expose;
 import com.google.gson.annotations.SerializedName;
 
-public class Doc {
+public class Hit {
 
 @SerializedName("_index")
 @Expose
@@ -15,12 +15,9 @@ private String type;
 @SerializedName("_id")
 @Expose
 private String id;
-@SerializedName("_version")
+@SerializedName("_score")
 @Expose
-private Integer version;
-@SerializedName("found")
-@Expose
-private Boolean found;
+private Double score;
 @SerializedName("_source")
 @Expose
 private JsonElement source;
@@ -49,20 +46,12 @@ public void setId(String id) {
 this.id = id;
 }
 
-public Integer getVersion() {
-return version;
+public Double getScore() {
+return score;
 }
 
-public void setVersion(Integer version) {
-this.version = version;
-}
-
-public Boolean getFound() {
-return found;
-}
-
-public void setFound(Boolean found) {
-this.found = found;
+public void setScore(Double score) {
+this.score = score;
 }
 
 public JsonElement getSource() {

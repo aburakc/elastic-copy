@@ -1,12 +1,12 @@
 package aburakc;
 
-import aburakc.model.id.IdResponse;
-import aburakc.model.mget.Doc;
-import aburakc.model.mget.MGetResponse;
+import aburakc.model.bulk.BulkResponse;
+import aburakc.model.scroll.Hit;
+import aburakc.model.scroll.ScrollResponse;
 import com.google.gson.Gson;
 import org.apache.commons.io.IOUtils;
 import org.apache.http.client.methods.CloseableHttpResponse;
-import org.apache.http.client.methods.HttpGet;
+import org.apache.http.client.methods.HttpPost;
 import org.apache.http.client.methods.HttpPut;
 import org.apache.http.entity.StringEntity;
 import org.apache.http.impl.client.CloseableHttpClient;
@@ -15,11 +15,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.util.CollectionUtils;
 
 import java.io.IOException;
+import java.net.MalformedURLException;
+import java.net.URL;
 import java.nio.charset.Charset;
-import java.util.List;
-import java.util.stream.Collectors;
 
 @Service
 public class ElasticCoppierServiceImpl implements ElasticCoppierService {
@@ -32,130 +33,90 @@ public class ElasticCoppierServiceImpl implements ElasticCoppierService {
     @Value("${toUrl}")
     private String elasticToUrl;
 
-    @Value("${bulkSize:100}")
+    @Value("${bulkSize:1000}")
     private Integer bulkSize;
 
-    @Value("${fromIndex:0}")
-    private Long fromIndex;
+    @Value("${scrollTime:5m}")
+    private String scrollTime;
 
-    @Override
-    public void test() {
-        LOGGER.info(elasticFromUrl);
+    private static String getHostWithPort(String url) throws MalformedURLException {
+        URL aUrl = new URL(url);
+        return aUrl.getProtocol() + "://" + aUrl.getAuthority();
     }
 
     @Override
-    public void beginCopy() {
-        long index = fromIndex;
-        long count = getCount();
-        while (index<count) {
-            List<String> ids = getIds(index);
-            index += ids.size();
-            copyDocs(getDocs(ids));
-            LOGGER.info("Total : " + index);
+    public void copyIndex() throws IOException {
+        String scrollId = null;
+        ScrollResponse scrollResponse;
+        int total = 0;
+        do {
+            scrollResponse = scroll(scrollId, scrollTime);
+            scrollId = scrollResponse.getScrollId();
+            if (!CollectionUtils.isEmpty(scrollResponse.getHits().getHits())) {
+                total += bulkIndex(scrollResponse);
+                LOGGER.info("Total Updated Index {}", total);
+            }
+        } while (!CollectionUtils.isEmpty(scrollResponse.getHits().getHits()));
+    }
+
+    @Override
+    public ScrollResponse scroll(String scrollId, String timeOut) throws IOException {
+        String url = String.format("%s/_search?scroll=%s", elasticFromUrl, timeOut);
+        if (scrollId != null) {
+            url = String.format("%s/_search/scroll", getHostWithPort(elasticFromUrl));
         }
-    }
-
-    public Long getCount() {
-        IdResponse idResponse = getIdResponse(0L, 1);
-        return idResponse.getHits().getTotal();
-    }
 
 
-    private IdResponse getIdResponse(Long fromIndex, Integer size) {
-        //http://localhost:9200/companydatabase/scroll/_search?stored_fields=id&size=1000&from=5000
-
-        String output = String.format("%s/_search?stored_fields=id&size=%d&from=%d", elasticFromUrl, size, fromIndex);
-
-        HttpGetWithEntity httpGet = new HttpGetWithEntity(output);
-
+        HttpPost httpPost = new HttpPost(url);
+        StringEntity jsonEntity = null;
+        if (scrollId == null) {
+            jsonEntity = new StringEntity(String.format("{\"size\":%s,\"sort\": [\"_doc\"]}", bulkSize), "UTF-8");
+        } else {
+            jsonEntity = new StringEntity(String.format("{\"scroll\" : \"%s\",\"scroll_id\" : \"%s\"}", scrollTime, scrollId), "UTF-8");
+        }
+        httpPost.setHeader("Content-type", "application/json");
+        httpPost.setHeader("Accept", "application/json");
+        httpPost.setEntity(jsonEntity);
         CloseableHttpClient httpClient = HttpClientBuilder.create().build();
-        try {
-            CloseableHttpResponse response = httpClient.execute(httpGet);
-            String json = IOUtils.toString(response.getEntity().getContent(), Charset.forName("UTF-8"));
-            LOGGER.debug(json);
-            httpClient.close();
-            Gson gson = new Gson();
-            IdResponse idResponse = gson.fromJson(json, IdResponse.class);
-            return idResponse;
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-
-        return null;
-
+        long b = System.currentTimeMillis();
+        CloseableHttpResponse response = httpClient.execute(httpPost);
+        String jsonResponse = IOUtils.toString(response.getEntity().getContent(), Charset.forName("UTF-8"));
+        httpClient.close();
+        LOGGER.debug(jsonResponse);
+        Gson gson = new Gson();
+        ScrollResponse scrollResponse = gson.fromJson(jsonResponse, ScrollResponse.class);
+        LOGGER.info("Scroll Total time : {}  ES time : {}, total : {}, hits : {} ", System.currentTimeMillis() - b, scrollResponse.getTook(), scrollResponse.getHits().getTotal(), CollectionUtils.isEmpty(scrollResponse.getHits().getHits()) ? "0" : scrollResponse.getHits().getHits().size());
+        return scrollResponse;
     }
 
     @Override
-    public List<String> getIds(Long fromIndex) {
-        IdResponse idResponse = getIdResponse(fromIndex, bulkSize);
-        return idResponse.getHits().getHits().stream().map(p -> p.getId()).collect(Collectors.toList());
-    }
-
-
-    @Override
-    public List<Doc> getDocs(List<String> ids) {
-        //http://localhost:9200/companydatabase/employees/_mget
-
-        String output = String.format("%s/_mget", elasticFromUrl);
-
-        HttpGetWithEntity httpGet = new HttpGetWithEntity(output);
-
-        CloseableHttpClient httpClient = HttpClientBuilder.create().build();
-        try {
-            Gson gson = new Gson();
-            String requestBody = "{\"ids\":" + gson.toJson(ids) + "}";
-
-            StringEntity jsonEntity = new StringEntity(requestBody, "UTF-8");
-            httpGet.setHeader("Content-type", "application/json");
-            httpGet.setHeader("Accept", "application/json");
-            httpGet.setEntity(jsonEntity);
-            CloseableHttpResponse response = httpClient.execute(httpGet);
-            String jsonResponse = IOUtils.toString(response.getEntity().getContent(), Charset.forName("UTF-8"));
-            LOGGER.debug(jsonResponse);
-            MGetResponse mGet = gson.fromJson(jsonResponse, MGetResponse.class);
-            httpClient.close();
-            return mGet.getDocs();
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-
-        return null;
-
-    }
-
-
-    @Override
-    public void copyDocs(List<Doc> docs) {
-
+    public Integer bulkIndex(ScrollResponse scrollResponse) throws IOException {
         String indexStr = "{\"index\":{\"_id\":\"%s\"}}";
         StringBuilder sb = new StringBuilder();
 
-        for (Doc d : docs) {
-            sb.append(String.format(indexStr, d.getId()));
+        for (Hit hit : scrollResponse.getHits().getHits()) {
+            sb.append(String.format(indexStr, hit.getId()));
             sb.append("\n");
-            sb.append(d.getSource().toString());
+            sb.append(hit.getSource().toString());
             sb.append("\n");
         }
-
-        LOGGER.debug(sb.toString());
-
         String output = String.format("%s/_bulk", elasticToUrl);
-
-
         HttpPut httpPut = new HttpPut(output);
         CloseableHttpClient httpClient = HttpClientBuilder.create().build();
 
-        try {
-            StringEntity jsonEntity = new StringEntity(sb.toString(), "UTF-8");
-            httpPut.setEntity(jsonEntity);
-            CloseableHttpResponse response = httpClient.execute(httpPut);
-            String jsonResponse = IOUtils.toString(response.getEntity().getContent(), Charset.forName("UTF-8"));
-            LOGGER.debug(jsonResponse);
-            httpClient.close();
+        StringEntity jsonEntity = new StringEntity(sb.toString(), "UTF-8");
+        httpPut.setHeader("Content-type", "application/x-ndjson");
+        httpPut.setEntity(jsonEntity);
+        long b = System.currentTimeMillis();
+        CloseableHttpResponse response = httpClient.execute(httpPut);
+        String jsonResponse = IOUtils.toString(response.getEntity().getContent(), Charset.forName("UTF-8"));
+        LOGGER.debug(jsonResponse);
+        httpClient.close();
 
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-
+        Gson gson = new Gson();
+        BulkResponse bulkResponse = gson.fromJson(jsonResponse, BulkResponse.class);
+        LOGGER.info("Bulk Total time : {}, ES time : {}, error : {}, updated : {} ", System.currentTimeMillis() - b, bulkResponse.getTook(), bulkResponse.getErrors(), CollectionUtils.isEmpty(bulkResponse.getItems()) ? "0" : bulkResponse.getItems().size());
+        return bulkResponse.getItems().size();
     }
+
 }

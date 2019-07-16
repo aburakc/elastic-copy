@@ -1,18 +1,14 @@
 package aburakc;
 
-import aburakc.model.mget.Doc;
+import aburakc.model.scroll.ScrollResponse;
 
-import java.util.List;
+import java.io.IOException;
 
 public interface ElasticCoppierService {
 
-    void test();
+    void copyIndex() throws IOException;
 
-    void beginCopy();
+    ScrollResponse scroll(String scrollId, String timeOut) throws IOException;
 
-    List<String> getIds(Long fromIndex);
-
-    List<Doc> getDocs(List<String> ids);
-
-    void copyDocs(List<Doc> docs);
+    Integer bulkIndex(ScrollResponse scrollResponse) throws IOException;
 }

@@ -16,13 +16,13 @@ public class ElasticCopyApplication implements CommandLineRunner {
     private ElasticCoppierService elasticCoppierService;
 
     public static void main(String[] args) {
-        LOGGER.info("STARTING THE APPLICATION");
+        LOGGER.info("ELASTICSEARCH COPY APPLICATION");
         SpringApplication.run(ElasticCopyApplication.class, args);
         LOGGER.info("APPLICATION FINISHED");
     }
 
     @Override
     public void run(String... args) throws Exception {
-        elasticCoppierService.beginCopy();
+        elasticCoppierService.copyIndex();
     }
 }
