@@ -39,6 +39,9 @@ public class ElasticCoppierServiceImpl implements ElasticCoppierService {
     @Value("${scrollTime:5m}")
     private String scrollTime;
 
+    private static final String indexStr = "{\"index\":{\"_id\":\"%s\"}}";
+
+
     private static String getHostWithPort(String url) throws MalformedURLException {
         URL aUrl = new URL(url);
         return aUrl.getProtocol() + "://" + aUrl.getAuthority();
@@ -66,7 +69,6 @@ public class ElasticCoppierServiceImpl implements ElasticCoppierService {
             url = String.format("%s/_search/scroll", getHostWithPort(elasticFromUrl));
         }
 
-
         HttpPost httpPost = new HttpPost(url);
         StringEntity jsonEntity = null;
         if (scrollId == null) {
@@ -91,7 +93,6 @@ public class ElasticCoppierServiceImpl implements ElasticCoppierService {
 
     @Override
     public Integer bulkIndex(ScrollResponse scrollResponse) throws IOException {
-        String indexStr = "{\"index\":{\"_id\":\"%s\"}}";
         StringBuilder sb = new StringBuilder();
 
         for (Hit hit : scrollResponse.getHits().getHits()) {
